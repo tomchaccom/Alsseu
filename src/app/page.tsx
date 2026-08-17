@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import { DashboardShell } from "@/components/dashboard-shell";
+import type { DashboardWeekSelection } from "@/domain/types";
 import { getDashboardData } from "@/lib/dashboard-data";
 import { isDemoMode } from "@/lib/env";
 import { getSampleDashboard } from "@/lib/sample-data";
@@ -13,6 +14,13 @@ function parseDemoState(value: string | string[] | undefined): DemoState {
     : "default";
 }
 
+function parseWeekSelection(
+  value: string | string[] | undefined,
+): DashboardWeekSelection {
+  const selection = Array.isArray(value) ? value[0] : value;
+  return selection === "previous" ? "previous" : "current";
+}
+
 export default async function Home({
   searchParams,
 }: {
@@ -20,9 +28,17 @@ export default async function Home({
 }) {
   await connection();
   const params = await searchParams;
+  const now = new Date();
+  const weekSelection = parseWeekSelection(params.week);
   const data = isDemoMode()
-    ? getSampleDashboard(new Date(), parseDemoState(params.state))
-    : await getDashboardData();
+    ? getSampleDashboard(now, parseDemoState(params.state))
+    : await getDashboardData(now, weekSelection);
 
-  return <DashboardShell data={data} initialNow={data.syncedAt} />;
+  return (
+    <DashboardShell
+      data={data}
+      initialNow={data.syncedAt}
+      weekSelection={weekSelection}
+    />
+  );
 }

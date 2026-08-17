@@ -1,7 +1,13 @@
 import { redirect } from "next/navigation";
-import { buildMemberProgress, getStudyWeek } from "@/domain/study";
+import {
+  buildMemberProgress,
+  getStudyWeek,
+  isMergedInWeek,
+} from "@/domain/study";
 import type {
   DashboardData,
+  DashboardWeekSelection,
+  DashboardWeekView,
   MemberStatus,
   PullRequest,
   StudyMember,
@@ -41,6 +47,60 @@ type PullRequestRow = {
   head_branch: string;
 };
 
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function getDashboardWeek(
+  now: Date,
+  selection: DashboardWeekSelection,
+) {
+  const referenceDate =
+    selection === "previous" ? new Date(now.getTime() - WEEK_MS) : now;
+
+  return getStudyWeek(referenceDate);
+}
+
+export function getDashboardWarmupWindow(now: Date) {
+  return {
+    startsAt: getDashboardWeek(now, "previous").startsAt,
+    endsAt: getDashboardWeek(now, "current").endsAt,
+  };
+}
+
+export function buildDashboardWeekViews(
+  members: StudyMember[],
+  recentActivity: PullRequest[],
+  now: Date,
+): Record<DashboardWeekSelection, DashboardWeekView> {
+  return {
+    current: buildDashboardWeekView(
+      members,
+      recentActivity,
+      getDashboardWeek(now, "current"),
+    ),
+    previous: buildDashboardWeekView(
+      members,
+      recentActivity,
+      getDashboardWeek(now, "previous"),
+    ),
+  };
+}
+
+function buildDashboardWeekView(
+  members: StudyMember[],
+  recentActivity: PullRequest[],
+  week: ReturnType<typeof getDashboardWeek>,
+): DashboardWeekView {
+  const activity = recentActivity.filter((pullRequest) =>
+    isMergedInWeek(pullRequest, week),
+  );
+
+  return {
+    week,
+    members: buildMemberProgress(members, activity, week),
+    activity,
+  };
+}
+
 function toMember(row: MemberRow): StudyMember {
   return {
     id: row.id,
@@ -67,7 +127,10 @@ function toPullRequest(row: PullRequestRow): PullRequest {
   };
 }
 
-export async function getDashboardData(now = new Date()): Promise<DashboardData> {
+export async function getDashboardData(
+  now = new Date(),
+  weekSelection: DashboardWeekSelection = "current",
+): Promise<DashboardData> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -86,7 +149,7 @@ export async function getDashboardData(now = new Date()): Promise<DashboardData>
   if (studyError || !studyData) redirect("/unauthorized");
 
   const study = studyData as StudyRow;
-  const week = getStudyWeek(now);
+  const warmupWindow = getDashboardWarmupWindow(now);
   const [{ data: memberData, error: memberError }, { data: prData, error: prError }] =
     await Promise.all([
       supabase
@@ -100,8 +163,10 @@ export async function getDashboardData(now = new Date()): Promise<DashboardData>
           "id,github_pr_number,github_login,title,html_url,opened_at,merged_at,additions,deletions,changed_files,head_branch",
         )
         .eq("study_id", study.id)
-        .gte("updated_at", week.startsAt)
-        .order("updated_at", { ascending: false }),
+        .eq("state", "merged")
+        .gte("merged_at", warmupWindow.startsAt)
+        .lte("merged_at", warmupWindow.endsAt)
+        .order("merged_at", { ascending: false }),
     ]);
 
   if (memberError || prError) {
@@ -109,7 +174,10 @@ export async function getDashboardData(now = new Date()): Promise<DashboardData>
   }
 
   const members = (memberData as MemberRow[]).map(toMember);
-  const activity = (prData as PullRequestRow[]).map(toPullRequest);
+  const recentActivity = (prData as PullRequestRow[]).map(toPullRequest);
+  const weekViews = buildDashboardWeekViews(members, recentActivity, now);
+  const selectedWeek = weekViews[weekSelection];
+  const [githubOwner, githubRepo] = [study.github_owner, study.github_repo];
 
   return {
     source: "supabase",
@@ -117,13 +185,12 @@ export async function getDashboardData(now = new Date()): Promise<DashboardData>
       id: study.id,
       name: study.name,
       slug: study.slug,
-      githubRepository: `${study.github_owner}/${study.github_repo}`,
+      githubRepository: `${githubOwner}/${githubRepo}`,
       weeklyQuota: 5,
       kakaoPayUrl: study.kakao_pay_url,
     },
-    week,
-    members: buildMemberProgress(members, activity, week),
-    activity,
+    ...selectedWeek,
+    weekViews,
     syncedAt: now.toISOString(),
   };
 }

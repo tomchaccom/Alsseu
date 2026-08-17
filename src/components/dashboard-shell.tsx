@@ -1,20 +1,30 @@
 "use client";
 
+import Image from "next/image";
+import Link from "next/link";
+import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
 import {
-  AlertTriangle,
   BellRing,
   Check,
   ChevronRight,
   CircleDollarSign,
+  Code2,
   Clock3,
   ExternalLink,
+  FileText,
   GitFork,
   GitPullRequest,
+  LoaderCircle,
+  MessageCircle,
   RefreshCw,
+  Send,
   Users,
   X,
 } from "lucide-react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
   formatDeadlineCountdown,
@@ -25,11 +35,14 @@ import {
 } from "@/domain/study";
 import type {
   DashboardData,
+  DashboardWeekSelection,
   MemberProgress,
   PullRequest,
+  PullRequestComment,
+  PullRequestDetails,
 } from "@/domain/types";
 
-type Tab = "week" | "activity" | "history";
+type Tab = "week" | "activity";
 
 const koreanDateTime = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul",
@@ -43,21 +56,63 @@ function initials(name: string) {
   return Array.from(name).slice(-2).join("");
 }
 
-function ProblemSlots({ member }: { member: MemberProgress }) {
+function MemberAvatar({ member }: { member: MemberProgress }) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  if (!member.avatarUrl || imageFailed) {
+    return <span className="avatar" aria-hidden="true">{initials(member.displayName)}</span>;
+  }
+
+  return (
+    <Image
+      className="avatar avatar--profile"
+      src={member.avatarUrl}
+      alt={`${member.displayName} GitHub 프로필`}
+      width={42}
+      height={42}
+      onError={() => setImageFailed(true)}
+    />
+  );
+}
+
+function ProblemSlots({
+  member,
+  onSelect,
+}: {
+  member: MemberProgress;
+  onSelect: (pullRequest: PullRequest) => void;
+}) {
   return (
     <div
       className={`problem-slots ${member.status === "dormant" ? "problem-slots--dormant" : ""}`}
       aria-label={`${member.displayName} ${member.solvedCount}/${WEEKLY_QUOTA}문제`}
     >
       {Array.from({ length: WEEKLY_QUOTA }, (_, index) => {
-        const completed = index < member.solvedCount;
+        const pullRequest = member.pullRequests[index];
+        const completed = Boolean(pullRequest) && index < member.solvedCount;
+
+        if (completed && pullRequest && member.status === "active") {
+          return (
+            <button
+              className="problem-slot problem-slot--done"
+              key={pullRequest.id}
+              type="button"
+              onClick={() => onSelect(pullRequest)}
+              aria-label={`${member.displayName} ${index + 1}번 문제 PR #${pullRequest.number} 열기`}
+              title={`PR #${pullRequest.number} · ${pullRequest.title}`}
+            >
+              {index + 1}
+            </button>
+          );
+        }
+
         return (
           <span
-            className={`problem-slot ${completed ? "problem-slot--done" : ""}`}
+            className="problem-slot"
             key={index}
             aria-hidden="true"
           >
-            {member.status === "dormant" ? "◦" : completed ? "✓" : index + 1}
+            {member.status === "dormant" ? "◦" : index + 1}
           </span>
         );
       })}
@@ -82,13 +137,56 @@ function MemberStatus({ member }: { member: MemberProgress }) {
   );
 }
 
+type LineSelection = {
+  filePath: string;
+  lineNumber: number;
+};
+
+function CommentItem({
+  comment,
+  inline = false,
+}: {
+  comment: PullRequestComment;
+  inline?: boolean;
+}) {
+  return (
+    <article className={`comment-item ${inline ? "comment-item--inline" : ""}`}>
+      <span className="comment-avatar" aria-hidden="true">
+        {initials(comment.author.displayName)}
+      </span>
+      <div>
+        <div className="comment-meta">
+          <strong>{comment.author.displayName}</strong>
+          <span>@{comment.author.githubLogin}</span>
+          <time dateTime={comment.createdAt}>
+            {koreanDateTime.format(new Date(comment.createdAt))}
+          </time>
+        </div>
+        <p>{comment.body}</p>
+      </div>
+    </article>
+  );
+}
+
 function PullRequestDialog({
   pullRequest,
+  initialDetails,
   onClose,
 }: {
   pullRequest: PullRequest;
+  initialDetails?: PullRequestDetails;
   onClose: () => void;
 }) {
+  const [details, setDetails] = useState<PullRequestDetails | null>(
+    initialDetails ?? null,
+  );
+  const [detailError, setDetailError] = useState("");
+  const [commentBody, setCommentBody] = useState("");
+  const [lineCommentBody, setLineCommentBody] = useState("");
+  const [selectedLine, setSelectedLine] = useState<LineSelection | null>(null);
+  const [commentError, setCommentError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") onClose();
@@ -96,6 +194,105 @@ function PullRequestDialog({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadDetails() {
+      setDetails(initialDetails ?? null);
+      setDetailError("");
+      setCommentBody("");
+      setLineCommentBody("");
+      setSelectedLine(null);
+      setCommentError("");
+
+      try {
+        const response = await fetch(`/api/pull-requests/${pullRequest.id}`, {
+          signal: controller.signal,
+        });
+        const value = (await response.json()) as PullRequestDetails & {
+          message?: string;
+        };
+
+        if (!response.ok) {
+          throw new Error(value.message ?? "PR 상세 정보를 불러오지 못했어요.");
+        }
+
+        setDetails(value);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (!initialDetails) {
+          setDetailError(
+            error instanceof Error
+              ? error.message
+              : "PR 상세 정보를 불러오지 못했어요.",
+          );
+        }
+      }
+    }
+
+    void loadDetails();
+    return () => controller.abort();
+  }, [initialDetails, pullRequest.id]);
+
+  async function submitComment(
+    event: React.FormEvent<HTMLFormElement>,
+    location: LineSelection | null = null,
+  ) {
+    event.preventDefault();
+    const body = (location ? lineCommentBody : commentBody).trim();
+    if (!body || body.length > 2000 || isSubmitting) return;
+
+    setIsSubmitting(true);
+    setCommentError("");
+
+    try {
+      const response = await fetch(`/api/pull-requests/${pullRequest.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          body,
+          filePath: location?.filePath ?? null,
+          lineNumber: location?.lineNumber ?? null,
+        }),
+      });
+      const value = (await response.json()) as {
+        comment?: PullRequestComment;
+        message?: string;
+      };
+
+      if (!response.ok || !value.comment) {
+        throw new Error(value.message ?? "댓글을 저장하지 못했어요.");
+      }
+
+      const savedComment: PullRequestComment = {
+        ...value.comment,
+        filePath: value.comment.filePath ?? location?.filePath ?? null,
+        lineNumber: value.comment.lineNumber ?? location?.lineNumber ?? null,
+      };
+      setDetails((current) => current
+        ? { ...current, comments: [...current.comments, savedComment] }
+        : current);
+
+      if (location) {
+        setLineCommentBody("");
+        setSelectedLine(null);
+      } else {
+        setCommentBody("");
+      }
+    } catch (error) {
+      setCommentError(
+        error instanceof Error ? error.message : "댓글을 저장하지 못했어요.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  const comments = details?.comments ?? [];
+  const generalComments = comments.filter(
+    (comment) => !comment.filePath || !comment.lineNumber,
+  );
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -115,12 +312,221 @@ function PullRequestDialog({
         <h2 id="pr-dialog-title">{pullRequest.title}</h2>
         <p className="dialog-author">@{pullRequest.authorLogin} · {pullRequest.mergedAt ? koreanDateTime.format(new Date(pullRequest.mergedAt)) : "아직 merge 전"}</p>
 
-        <div className="code-preview" aria-label="PR 변경 요약">
-          <div className="code-preview__header">
-            <span>{pullRequest.headBranch}</span>
-            <span>{pullRequest.changedFiles} file changed</span>
-          </div>
-          <pre><code><span className="code-line code-line--add">+ solution submitted</span>{"\n"}<span className="code-line">  GitHub에서 전체 풀이와 diff를 확인하세요.</span></code></pre>
+        <div className="dialog-content">
+          {!details && !detailError && (
+            <div className="pr-detail-loading" role="status">
+              <LoaderCircle size={22} aria-hidden="true" />
+              GitHub에서 문제와 코드를 불러오는 중이에요.
+            </div>
+          )}
+
+          {detailError && (
+            <div className="pr-detail-error" role="alert">
+              <strong>상세 내용을 열지 못했어요.</strong>
+              <span>{detailError}</span>
+            </div>
+          )}
+
+          {details && (
+            <>
+              <div className="pr-review-grid">
+                <section className="pr-detail-section pr-review-pane pr-review-pane--problem" aria-labelledby="problem-description-title">
+                  <div className="pr-detail-heading">
+                    <FileText size={17} aria-hidden="true" />
+                    <div>
+                      <h3 id="problem-description-title">문제 설명</h3>
+                      <span>{details.problem?.filename ?? "README.md 없음"}</span>
+                    </div>
+                  </div>
+                  {details.problem ? (
+                    <div className="markdown-body">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeRaw, rehypeSanitize]}
+                        components={{
+                          a: ({ href, ...props }) => (
+                            <a
+                              {...props}
+                              href={href}
+                              target="_blank"
+                              rel="noreferrer"
+                            />
+                          ),
+                        }}
+                      >
+                        {details.problem.markdown}
+                      </ReactMarkdown>
+                      {details.problem.truncated && (
+                        <p className="content-truncated">긴 문서라 일부만 표시했어요.</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="pr-detail-empty">PR에서 문제 설명 Markdown을 찾지 못했어요.</p>
+                  )}
+                </section>
+
+                <section className="pr-detail-section pr-review-pane pr-review-pane--code" aria-labelledby="solution-code-title">
+                  <div className="pr-detail-heading">
+                    <Code2 size={17} aria-hidden="true" />
+                    <div>
+                      <h3 id="solution-code-title">풀이 코드</h3>
+                      <span>{details.codeFiles.length}개 파일 · 줄을 선택해 코멘트</span>
+                    </div>
+                  </div>
+                  {details.codeFiles.length ? (
+                    <div className="solution-files">
+                      {details.codeFiles.map((file) => (
+                        <article className="code-preview" key={file.filename}>
+                          <div className="code-preview__header">
+                            <span>{file.filename}</span>
+                            <span>{file.language.toUpperCase()}</span>
+                          </div>
+                          <div className="code-lines" role="list" aria-label={`${file.filename} 코드`}>
+                            {file.content.split(/\r\n|\r|\n/).map((line, index) => {
+                              const lineNumber = index + 1;
+                              const isSelected = selectedLine?.filePath === file.filename
+                                && selectedLine.lineNumber === lineNumber;
+                              const lineComments = comments.filter(
+                                (comment) => comment.filePath === file.filename
+                                  && comment.lineNumber === lineNumber,
+                              );
+
+                              return (
+                                <div
+                                  className="code-line-group"
+                                  role="listitem"
+                                  aria-label={`${file.filename} ${lineNumber}번 줄 리뷰`}
+                                  key={`${file.filename}-${lineNumber}`}
+                                >
+                                  <button
+                                    className={`code-line ${isSelected ? "code-line--selected" : ""}`}
+                                    type="button"
+                                    aria-label={`${file.filename} ${lineNumber}번 줄에 댓글 작성`}
+                                    aria-pressed={isSelected}
+                                    onClick={() => {
+                                      setSelectedLine(isSelected ? null : {
+                                        filePath: file.filename,
+                                        lineNumber,
+                                      });
+                                      setLineCommentBody("");
+                                      setCommentError("");
+                                    }}
+                                  >
+                                    <span className="code-line__number" aria-hidden="true">{lineNumber}</span>
+                                    <code>{line || " "}</code>
+                                  </button>
+
+                                  {lineComments.map((comment) => (
+                                    <CommentItem comment={comment} inline key={comment.id} />
+                                  ))}
+
+                                  {isSelected && (
+                                    <form
+                                      className="comment-form inline-comment-form"
+                                      onSubmit={(event) => submitComment(event, selectedLine)}
+                                    >
+                                      <label htmlFor={`line-comment-${file.filename}-${lineNumber}`}>
+                                        {lineNumber}번 줄 댓글
+                                      </label>
+                                      <textarea
+                                        id={`line-comment-${file.filename}-${lineNumber}`}
+                                        value={lineCommentBody}
+                                        onChange={(event) => setLineCommentBody(event.target.value)}
+                                        maxLength={2000}
+                                        placeholder="이 줄에 대한 질문이나 개선점을 남겨보세요."
+                                        rows={2}
+                                        autoFocus
+                                      />
+                                      <div className="comment-form__footer">
+                                        <span className={commentError ? "form-error" : ""}>
+                                          {commentError || `${lineCommentBody.length}/2,000`}
+                                        </span>
+                                        <div className="inline-comment-actions">
+                                          <button
+                                            className="secondary-button"
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedLine(null);
+                                              setLineCommentBody("");
+                                              setCommentError("");
+                                            }}
+                                          >
+                                            취소
+                                          </button>
+                                          <button
+                                            className="primary-button"
+                                            type="submit"
+                                            disabled={!lineCommentBody.trim() || isSubmitting}
+                                          >
+                                            {isSubmitting ? "저장 중" : "줄 댓글 남기기"}
+                                            <Send size={14} aria-hidden="true" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </form>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {file.truncated && (
+                            <p className="content-truncated">긴 코드라 일부만 표시했어요.</p>
+                          )}
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="pr-detail-empty">PR에서 표시할 풀이 코드를 찾지 못했어요.</p>
+                  )}
+                </section>
+              </div>
+
+              <section className="pr-detail-section comment-section" aria-labelledby="comments-title">
+                <div className="pr-detail-heading">
+                  <MessageCircle size={17} aria-hidden="true" />
+                  <div>
+                    <h3 id="comments-title">전체 댓글</h3>
+                    <span>코드 위치 없는 Alsseu 내부 댓글 {generalComments.length}개</span>
+                  </div>
+                </div>
+
+                <div className="comment-list" aria-live="polite">
+                  {generalComments.length ? (
+                    generalComments.map((comment) => (
+                      <CommentItem comment={comment} key={comment.id} />
+                    ))
+                  ) : (
+                    <p className="pr-detail-empty">첫 댓글을 남겨 풀이에 대한 이야기를 시작해보세요.</p>
+                  )}
+                </div>
+
+                <form className="comment-form" onSubmit={(event) => submitComment(event)}>
+                  <label htmlFor={`comment-${pullRequest.id}`}>댓글 작성</label>
+                  <textarea
+                    id={`comment-${pullRequest.id}`}
+                    value={commentBody}
+                    onChange={(event) => setCommentBody(event.target.value)}
+                    maxLength={2000}
+                    placeholder="풀이 아이디어나 개선할 점을 남겨보세요."
+                    rows={3}
+                  />
+                  <div className="comment-form__footer">
+                    <span className={commentError ? "form-error" : ""}>
+                      {commentError || `${commentBody.length}/2,000`}
+                    </span>
+                    <button
+                      className="primary-button"
+                      type="submit"
+                      disabled={!commentBody.trim() || isSubmitting}
+                    >
+                      {isSubmitting ? "저장 중" : "댓글 남기기"}
+                      <Send size={14} aria-hidden="true" />
+                    </button>
+                  </div>
+                </form>
+              </section>
+            </>
+          )}
         </div>
 
         <div className="dialog-footer">
@@ -138,15 +544,23 @@ function PullRequestDialog({
 }
 
 export function DashboardShell({
-  data,
+  data: initialData,
   initialNow,
+  weekSelection: initialWeekSelection = "current",
 }: {
   data: DashboardData;
   initialNow: string;
+  weekSelection?: DashboardWeekSelection;
 }) {
   const [activeTab, setActiveTab] = useState<Tab>("week");
+  const [weekSelection, setWeekSelection] =
+    useState<DashboardWeekSelection>(initialWeekSelection);
   const [selectedPullRequest, setSelectedPullRequest] = useState<PullRequest | null>(null);
   const [now, setNow] = useState(() => new Date(initialNow));
+  const selectedWeekView = initialData.weekViews?.[weekSelection];
+  const data = selectedWeekView
+    ? { ...initialData, ...selectedWeekView }
+    : initialData;
 
   useEffect(() => {
     const timer = window.setInterval(
@@ -155,6 +569,55 @@ export function DashboardShell({
     );
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (initialData.source !== "supabase") return;
+
+    const startWarmup = () => {
+      void fetch("/api/pull-requests/warmup", {
+        method: "POST",
+      }).catch(() => undefined);
+    };
+    const timeoutId = window.setTimeout(startWarmup, 1_000);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [initialData.source]);
+
+  useEffect(() => {
+    if (!initialData.weekViews) return;
+
+    const syncWeekFromUrl = () => {
+      const selection =
+        new URLSearchParams(window.location.search).get("week") === "previous"
+          ? "previous"
+          : "current";
+      setWeekSelection(selection);
+      setActiveTab("week");
+      setSelectedPullRequest(null);
+    };
+
+    window.addEventListener("popstate", syncWeekFromUrl);
+    return () => window.removeEventListener("popstate", syncWeekFromUrl);
+  }, [initialData.weekViews]);
+
+  function selectWeek(
+    event: MouseEvent<HTMLAnchorElement>,
+    selection: DashboardWeekSelection,
+  ) {
+    if (!initialData.weekViews) return;
+
+    event.preventDefault();
+    setWeekSelection(selection);
+    setActiveTab("week");
+    setSelectedPullRequest(null);
+    window.history.pushState(
+      null,
+      "",
+      selection === "previous" ? "/?week=previous" : "/",
+    );
+  }
 
   const activeMembers = data.members.filter((member) => member.status === "active");
   const completedMembers = activeMembers.filter((member) => member.completed);
@@ -182,20 +645,38 @@ export function DashboardShell({
         </a>
 
         <nav className="main-nav" aria-label="대시보드 메뉴">
-          {([
-            ["week", "이번 주"],
-            ["activity", "PR 활동"],
-            ["history", "지난 주차"],
-          ] as const).map(([tab, label]) => (
-            <button
-              className={activeTab === tab ? "is-active" : ""}
-              type="button"
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-            >
-              {label}
-            </button>
-          ))}
+          <Link
+            className={
+              activeTab === "week" && weekSelection === "current"
+                ? "is-active"
+                : ""
+            }
+            href="/"
+            onClick={(event) => selectWeek(event, "current")}
+            prefetch={false}
+          >
+            이번 주
+          </Link>
+          <button
+            className={activeTab === "activity" ? "is-active" : ""}
+            type="button"
+            onClick={() => setActiveTab("activity")}
+          >
+            PR 활동
+          </button>
+          <Link
+            className={
+              activeTab === "week" && weekSelection === "previous"
+                ? "is-active"
+                : ""
+            }
+            href="/?week=previous"
+            onClick={(event) => selectWeek(event, "previous")}
+            prefetch={false}
+          >
+            지난 주차
+          </Link>
+          <Link href="/admin">멤버 관리</Link>
         </nav>
 
         <div className="topbar-actions">
@@ -317,13 +798,13 @@ export function DashboardShell({
                 {data.members.map((member) => (
                   <article className={`member-row ${member.status === "dormant" ? "member-row--dormant" : ""}`} key={member.id}>
                     <div className="member-identity">
-                      <span className="avatar" aria-hidden="true">{initials(member.displayName)}</span>
+                      <MemberAvatar member={member} />
                       <div>
                         <strong>{member.displayName}</strong>
                         <span>@{member.githubLogin}</span>
                       </div>
                     </div>
-                    <ProblemSlots member={member} />
+                    <ProblemSlots member={member} onSelect={setSelectedPullRequest} />
                     <div className="member-count">
                       <strong>{member.solvedCount}</strong><span>/5</span>
                     </div>
@@ -376,7 +857,7 @@ export function DashboardShell({
             <div className="section-heading">
               <div>
                 <p className="eyebrow">PULL REQUESTS</p>
-                <h2>이번 주 PR 활동</h2>
+                <h2>{weekSelection === "previous" ? "지난주" : "이번 주"} PR 활동</h2>
               </div>
               <span>{latestActivity.length}개 기록</span>
             </div>
@@ -404,14 +885,6 @@ export function DashboardShell({
           </section>
         )}
 
-        {activeTab === "history" && (
-          <section className="history-section glass-card">
-            <span className="summary-icon"><AlertTriangle size={21} aria-hidden="true" /></span>
-            <p className="eyebrow">NEXT ITERATION</p>
-            <h2>지난 주차 보기는 다음 단계에서 열려요</h2>
-            <p>MVP는 현재 주차의 PR, 마감 알림, 벌금 대상 확인에 집중합니다.</p>
-          </section>
-        )}
       </main>
 
       <footer className="footer">
@@ -420,7 +893,10 @@ export function DashboardShell({
       </footer>
 
       {selectedPullRequest && (
-        <PullRequestDialog pullRequest={selectedPullRequest} onClose={() => setSelectedPullRequest(null)} />
+        <PullRequestDialog
+          pullRequest={selectedPullRequest}
+          onClose={() => setSelectedPullRequest(null)}
+        />
       )}
     </div>
   );

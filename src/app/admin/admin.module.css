@@ -1,0 +1,205 @@
+.page {
+  min-height: 100vh;
+  padding: 48px 24px;
+  background:
+    radial-gradient(circle at 12% 8%, rgb(0 196 113 / 12%), transparent 34%),
+    #f5f6f7;
+  color: #212529;
+}
+
+.panel {
+  width: min(960px, 100%);
+  margin: 0 auto;
+  padding: 32px;
+  border: 1px solid rgb(255 255 255 / 72%);
+  border-radius: 28px;
+  background: rgb(255 255 255 / 78%);
+  box-shadow: 0 24px 64px rgb(33 37 41 / 8%);
+  backdrop-filter: blur(22px);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.header h1 {
+  margin: 8px 0 10px;
+  font-size: clamp(28px, 4vw, 42px);
+  letter-spacing: -0.04em;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #00a65e;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.description {
+  margin: 0;
+  color: #6b7684;
+}
+
+.backLink {
+  flex: none;
+  padding: 11px 16px;
+  border: 1px solid #dfe3e8;
+  border-radius: 999px;
+  color: #212529;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.summary {
+  display: flex;
+  gap: 10px;
+  margin: 28px 0 14px;
+}
+
+.summary span,
+.activeBadge,
+.dormantBadge,
+.adminBadge {
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.summary span {
+  padding: 8px 12px;
+  background: #f1f3f5;
+}
+
+.memberList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memberRow {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto minmax(190px, auto);
+  align-items: center;
+  gap: 18px;
+  padding: 20px 0;
+  border-top: 1px solid #e5e8eb;
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.identity strong {
+  width: 100%;
+  font-size: 17px;
+}
+
+.identity > span:not(.adminBadge) {
+  color: #6b7684;
+  font-size: 14px;
+}
+
+.activeBadge,
+.dormantBadge,
+.adminBadge {
+  padding: 6px 10px;
+}
+
+.activeBadge {
+  color: #007b46;
+  background: #e7f9f0;
+}
+
+.dormantBadge {
+  color: #6b7684;
+  background: #eef0f2;
+}
+
+.adminBadge {
+  color: #007b46;
+  background: #e7f9f0;
+}
+
+.statusForm {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.statusButton {
+  min-width: 108px;
+  padding: 10px 14px;
+  border: 1px solid #dfe3e8;
+  border-radius: 12px;
+  background: #fff;
+  color: #212529;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.statusButton:hover:not(:disabled) {
+  border-color: #00c471;
+  color: #007b46;
+}
+
+.statusButton:disabled {
+  color: #9aa3ad;
+  cursor: not-allowed;
+}
+
+.formMessage,
+.formError {
+  max-width: 240px;
+  font-size: 12px;
+  text-align: right;
+}
+
+.formMessage {
+  color: #6b7684;
+}
+
+.formError {
+  color: #c0392b;
+}
+
+@media (max-width: 700px) {
+  .page {
+    padding: 20px 12px;
+  }
+
+  .panel {
+    padding: 22px 18px;
+    border-radius: 22px;
+  }
+
+  .header {
+    flex-direction: column;
+  }
+
+  .memberRow {
+    grid-template-columns: 1fr auto;
+  }
+
+  .statusForm {
+    grid-column: 1 / -1;
+    align-items: stretch;
+  }
+
+  .formMessage,
+  .formError {
+    max-width: none;
+    text-align: left;
+  }
+}

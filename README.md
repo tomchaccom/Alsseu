@@ -4,15 +4,17 @@ GitHub 원본 레포의 merge PR을 주간 문제 풀이로 집계하는 알고�
 
 ## 현재 구현 범위
 
-- 반응형 주간 대시보드와 PR 상세 모달
+- 반응형 주간 대시보드와 문제 설명(왼쪽)·풀이 코드(오른쪽) PR 리뷰 모달
+- 활성 스터디원 전용 PR 전체 댓글과 코드 라인 댓글
+- 이번 주·직전 주차를 한 번에 읽는 즉시 탭 전환과 렌더 후 별도 예열되는 GitHub PR 문제·코드 14일 서버 캐시
 - 마감 상태, 5문제 슬롯, 마감 후 벌금 대상 표시
-- Supabase GitHub OAuth 및 RLS 골격
+- Supabase GitHub OAuth, 스터디 멤버 자동 연결, 활성·휴면 관리 및 RLS
 - GitHub webhook 수집 Edge Function
 - Discord 3시간 전 알림 Edge Function과 Cron 예시
 - Supabase migration/seed, Vercel 배포 가능한 Next.js 빌드
 - 환경 변수 없이 확인 가능한 데모 모드
 
-회원 관리 UI, 납부 상태 추적, 코드 코멘트, 랭킹, 멀티 스터디는 MVP에 포함하지 않습니다.
+GitHub 댓글 동기화, 내부 댓글 수정·삭제, 납부 상태 추적, 랭킹, 멀티 스터디는 MVP에 포함하지 않습니다.
 
 ## 로컬 실행
 
@@ -22,13 +24,20 @@ cp .env.example .env.local
 pnpm dev
 ```
 
-`NEXT_PUBLIC_DEMO_MODE=true`이면 별도 백엔드 없이 샘플 데이터를 사용합니다. `/`에서 `?state=warning`, `?state=closed`, `?state=complete`를 붙이면 주요 화면 상태를 확인할 수 있습니다.
+`NEXT_PUBLIC_DEMO_MODE=true`이면 별도 백엔드 없이 샘플 데이터를 사용합니다. `/`에서 `?state=warning`, `?state=closed`, `?state=complete`를 붙이면 주요 화면 상태를 확인할 수 있습니다. 운영 데이터의 직전 주차는 `/?week=previous`에서 확인합니다.
 
 전체 검증:
 
 ```bash
 pnpm verify
 ```
+
+## CI/CD
+
+- GitHub Actions는 모든 PR과 `main` push에서 `pnpm verify`를 실행합니다.
+- Vercel Git 연동은 기능 브랜치마다 Preview를 만들고 `main` 변경을 Production으로 자동 배포합니다.
+- Vercel의 Production과 Preview 환경에는 `NEXT_PUBLIC_DEMO_MODE=false`, `NEXT_PUBLIC_STUDY_SLUG`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`를 등록합니다.
+- 첫 배포 주소는 Supabase Auth의 Site URL과 Redirect URLs에 `https://<vercel-domain>/auth/callback` 형태로 추가합니다.
 
 ## Supabase 로컬 개발
 
@@ -46,7 +55,7 @@ pnpm functions:serve
 
 1. Supabase 프로젝트에 `supabase/migrations`를 적용합니다.
 2. GitHub OAuth provider를 켜고 `https://<app-domain>/auth/callback`을 redirect URL로 등록합니다.
-3. `studies`, `members`를 등록하고 멤버의 `user_id`를 Supabase Auth 사용자와 연결합니다.
+3. `studies`, `members`를 등록합니다. 로그인한 GitHub 계정은 등록된 멤버와 자동 연결됩니다.
 4. `github-webhook`, `discord-reminder` Edge Function을 배포하고 secret을 설정합니다.
 5. GitHub 원본 레포의 Webhook URL을 `https://<project-ref>.supabase.co/functions/v1/github-webhook`으로 등록하고 Pull requests 이벤트만 선택합니다.
 6. `supabase/cron/discord-reminder.sql`의 placeholder를 교체해 SQL Editor에서 실행합니다.
