@@ -14,7 +14,8 @@ GitHub 원본 레포의 PR을 주간 문제 풀이로 집계해 팀 진행률과
 - 휴면 멤버는 진행률과 벌금 대상에서 제외한다.
 - 마감 3시간 전 알림은 주간 구간마다 한 번만 전송한다.
 - 벌금은 납부 상태를 추적하지 않는다. 대상자와 카카오 모임통장 링크만 제공한다.
-- 회원 관리 UI, 코드 코멘트, 랭킹, 결제 추적, 멀티 스터디 UI는 MVP 밖이다.
+- 완료 슬롯에서 실제 PR의 문제 README와 풀이 코드를 열고, 활성 스터디원끼리 전체 댓글과 코드 라인 댓글을 남긴다.
+- GitHub 댓글 동기화, 댓글 수정·삭제, 랭킹, 결제 추적, 멀티 스터디 UI는 MVP 밖이다.
 
 ## 기술 스택과 서비스 경계
 
@@ -37,6 +38,7 @@ GitHub 원본 레포의 PR을 주간 문제 풀이로 집계해 팀 진행률과
 | 인증 | `src/lib/supabase/*`, `src/app/login`, `src/app/auth/callback` |
 | DB/RLS | `supabase/migrations/*` |
 | GitHub 수집 | `supabase/functions/github-webhook/index.ts` |
+| PR 파일·댓글 | `src/app/api/pull-requests/[id]/route.ts`, `src/lib/github-pr-details.ts` |
 | Discord 알림 | `supabase/functions/discord-reminder/index.ts` |
 | 배포·환경변수 | `.env.example`, `README.md` |
 
@@ -49,6 +51,8 @@ GitHub 원본 레포의 PR을 주간 문제 풀이로 집계해 팀 진행률과
 5. RLS를 끄거나 service role key를 클라이언트에 노출하는 방식으로 인증 문제를 우회하지 않는다.
 6. 실제 연동 값이 없을 때는 데모 모드로 빌드 가능해야 하며, 운영에서는 `NEXT_PUBLIC_DEMO_MODE=false`로 명시한다.
 7. Next.js API를 사용할 때는 현재 설치 버전의 `node_modules/next/dist/docs/` 문서를 먼저 확인한다.
+8. PR 댓글은 `pull_request_comments` RLS로 읽기·쓰기를 활성 스터디원에게만 허용하고, GitHub OAuth 토큰은 서버 경계 밖으로 내보내지 않는다.
+9. 첫 대시보드 조회에서 이번 주·직전 주차 집계를 함께 내려 탭을 클라이언트에서 즉시 전환한다. 공개 GitHub PR 문제·코드 원문은 첫 렌더 후 별도 예열 API가 비동기로 요청해 14일간 저장하고, 세션·RLS 결과·댓글은 캐시하지 않는다.
 
 ## 작업 루프
 

@@ -44,3 +44,57 @@ on conflict (study_id, github_login) do update set
   display_name = excluded.display_name,
   avatar_url = excluded.avatar_url,
   status = excluded.status;
+
+create or replace function public.link_current_github_member()
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  identity_login text;
+  linked_count integer;
+begin
+  if auth.uid() is null then
+    return false;
+  end if;
+
+  select coalesce(
+    nullif(identity_data ->> 'user_name', ''),
+    nullif(identity_data ->> 'preferred_username', ''),
+    nullif(identity_data ->> 'login', '')
+  )
+  into identity_login
+  from auth.identities
+  where user_id = auth.uid()
+    and provider = 'github'
+  order by created_at
+  limit 1;
+
+  if identity_login is null then
+    return false;
+  end if;
+
+  update public.members
+  set user_id = auth.uid()
+  where lower(public.members.github_login) = lower(identity_login)
+    and (user_id is null or user_id = auth.uid());
+
+  get diagnostics linked_count = row_count;
+  return linked_count > 0;
+end;
+$$;
+
+revoke all on function public.link_current_github_member() from public;
+grant execute on function public.link_current_github_member() to authenticated;
+
+update public.members as member
+set user_id = identity.user_id
+from auth.identities as identity
+where identity.provider = 'github'
+  and member.user_id is null
+  and lower(member.github_login) = lower(coalesce(
+    nullif(identity.identity_data ->> 'user_name', ''),
+    nullif(identity.identity_data ->> 'preferred_username', ''),
+    nullif(identity.identity_data ->> 'login', '')
+  ));
