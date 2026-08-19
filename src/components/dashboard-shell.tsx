@@ -795,7 +795,11 @@ export function DashboardShell({
               </div>
 
               <div className="member-list">
-                {data.members.map((member) => (
+                {[...data.members].sort((a, b) => {
+                  if (a.status === "dormant" && b.status !== "dormant") return 1;
+                  if (a.status !== "dormant" && b.status === "dormant") return -1;
+                  return 0;
+                }).map((member) => (
                   <article className={`member-row ${member.status === "dormant" ? "member-row--dormant" : ""}`} key={member.id}>
                     <div className="member-identity">
                       <MemberAvatar member={member} />
