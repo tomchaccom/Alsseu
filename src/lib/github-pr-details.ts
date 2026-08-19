@@ -57,8 +57,15 @@ export function selectPullRequestFiles(files: GitHubPullRequestFile[]) {
   );
   const problem =
     markdownFiles.find(
+      (file) =>
+        file.filename.includes("/") &&
+        file.filename.split("/").pop()?.toLowerCase() === "readme.md",
+    ) ??
+    markdownFiles.find(
       (file) => file.filename.split("/").pop()?.toLowerCase() === "readme.md",
-    ) ?? markdownFiles[0] ?? null;
+    ) ??
+    markdownFiles[0] ??
+    null;
   const codeFiles = available
     .filter((file) => CODE_EXTENSIONS.has(extensionOf(file.filename)))
     .slice(0, MAX_CODE_FILES);
@@ -166,7 +173,7 @@ async function loadGitHubPullRequestDetails({
 const readCachedGitHubPullRequestDetails = unstable_cache(
   async (owner: string, repo: string, number: number) =>
     loadGitHubPullRequestDetails({ owner, repo, number }),
-  ["github-pull-request-content-v1"],
+  ["github-pull-request-content-v2"],
   {
     revalidate: PULL_REQUEST_CONTENT_CACHE_SECONDS,
     tags: ["github-pull-request-content"],
