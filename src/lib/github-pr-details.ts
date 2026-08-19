@@ -57,8 +57,15 @@ export function selectPullRequestFiles(files: GitHubPullRequestFile[]) {
   );
   const problem =
     markdownFiles.find(
+      (file) =>
+        file.filename.includes("/") &&
+        file.filename.split("/").pop()?.toLowerCase() === "readme.md",
+    ) ??
+    markdownFiles.find(
       (file) => file.filename.split("/").pop()?.toLowerCase() === "readme.md",
-    ) ?? markdownFiles[0] ?? null;
+    ) ??
+    markdownFiles[0] ??
+    null;
   const codeFiles = available
     .filter((file) => CODE_EXTENSIONS.has(extensionOf(file.filename)))
     .slice(0, MAX_CODE_FILES);
