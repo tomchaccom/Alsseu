@@ -173,7 +173,7 @@ async function loadGitHubPullRequestDetails({
 const readCachedGitHubPullRequestDetails = unstable_cache(
   async (owner: string, repo: string, number: number) =>
     loadGitHubPullRequestDetails({ owner, repo, number }),
-  ["github-pull-request-content-v1"],
+  ["github-pull-request-content-v2"],
   {
     revalidate: PULL_REQUEST_CONTENT_CACHE_SECONDS,
     tags: ["github-pull-request-content"],
