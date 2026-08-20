@@ -56,6 +56,45 @@ function initials(name: string) {
   return Array.from(name).slice(-2).join("");
 }
 
+function difficultyScore(headBranch: string): number {
+  // BOJ: boj/{tier}/...
+  const boj = headBranch.match(/^boj\/(ruby|diamond|platinum|gold|silver|bronze)/i);
+  if (boj) {
+    const scores: Record<string, number> = { bronze: 10, silver: 20, gold: 30, platinum: 40, diamond: 50, ruby: 60 };
+    return scores[boj[1].toLowerCase()] ?? 0;
+  }
+  // Programmers: pro/level{n} | Pro/lv.{n} | pro/lv{n} 등 대소문자·약어 혼용
+  const pro = headBranch.match(/^[Pp]ro\/(?:level|lv\.?)(\d)/i);
+  if (pro) return parseInt(pro[1]) * 10;
+  // LeetCode: leet/{easy|medium|hard}/...
+  const leet = headBranch.match(/^leet\/(easy|medium|hard)/i);
+  if (leet) {
+    const scores: Record<string, number> = { easy: 20, medium: 35, hard: 50 };
+    return scores[leet[1].toLowerCase()] ?? 0;
+  }
+  return 0;
+}
+
+function getHardestSolvers(members: MemberProgress[]): Set<string> {
+  let maxScore = 0;
+  for (const member of members) {
+    if (member.status !== "active") continue;
+    for (const pr of member.pullRequests) {
+      const score = difficultyScore(pr.headBranch ?? "");
+      if (score > maxScore) maxScore = score;
+    }
+  }
+  if (maxScore === 0) return new Set();
+  const result = new Set<string>();
+  for (const member of members) {
+    if (member.status !== "active") continue;
+    if (member.pullRequests.some((pr) => difficultyScore(pr.headBranch ?? "") === maxScore)) {
+      result.add(member.id);
+    }
+  }
+  return result;
+}
+
 function MemberAvatar({ member }: { member: MemberProgress }) {
   const [imageFailed, setImageFailed] = useState(false);
 
@@ -88,7 +127,8 @@ function ProblemSlots({
       aria-label={`${member.displayName} ${member.solvedCount}/${WEEKLY_QUOTA}문제`}
     >
       {Array.from({ length: WEEKLY_QUOTA }, (_, index) => {
-        const pullRequest = member.pullRequests[index];
+        const prIndex = member.solvedCount - 1 - index;
+        const pullRequest = prIndex >= 0 ? member.pullRequests[prIndex] : undefined;
         const completed = Boolean(pullRequest) && index < member.solvedCount;
 
         if (completed && pullRequest && member.status === "active") {
@@ -547,10 +587,12 @@ export function DashboardShell({
   data: initialData,
   initialNow,
   weekSelection: initialWeekSelection = "current",
+  currentUserGithubLogin = null,
 }: {
   data: DashboardData;
   initialNow: string;
   weekSelection?: DashboardWeekSelection;
+  currentUserGithubLogin?: string | null;
 }) {
   const [activeTab, setActiveTab] = useState<Tab>("week");
   const [weekSelection, setWeekSelection] =
@@ -795,10 +837,16 @@ export function DashboardShell({
               </div>
 
               <div className="member-list">
-                {[...data.members].sort((a, b) => {
-                  if (a.status === "dormant" && b.status !== "dormant") return 1;
-                  if (a.status !== "dormant" && b.status === "dormant") return -1;
-                  return 0;
+                {(() => {
+                  const hardestSolvers = getHardestSolvers(data.members);
+                  return [...data.members].sort((a, b) => {
+                  const aDormant = a.status === "dormant";
+                  const bDormant = b.status === "dormant";
+                  if (aDormant !== bDormant) return aDormant ? 1 : -1;
+                  const aIsMe = a.githubLogin.toLowerCase() === currentUserGithubLogin?.toLowerCase();
+                  const bIsMe = b.githubLogin.toLowerCase() === currentUserGithubLogin?.toLowerCase();
+                  if (aIsMe !== bIsMe) return aIsMe ? -1 : 1;
+                  return b.solvedCount - a.solvedCount;
                 }).map((member) => (
                   <article className={`member-row ${member.status === "dormant" ? "member-row--dormant" : ""}`} key={member.id}>
                     <div className="member-identity">
@@ -806,6 +854,9 @@ export function DashboardShell({
                       <div>
                         <strong>{member.displayName}</strong>
                         <span>@{member.githubLogin}</span>
+                        {hardestSolvers.has(member.id) && (
+                          <span className="hardest-badge">🔥 최고 난이도</span>
+                        )}
                       </div>
                     </div>
                     <ProblemSlots member={member} onSelect={setSelectedPullRequest} />
@@ -823,7 +874,8 @@ export function DashboardShell({
                       )}
                     </div>
                   </article>
-                ))}
+                ));
+                })()}
               </div>
             </section>
 
