@@ -68,7 +68,7 @@ describe("DashboardShell", () => {
 
   it("opens a completed problem slot and posts an internal study comment", async () => {
     const data = getSampleDashboard(new Date("2026-08-12T03:00:00.000Z"));
-    const pullRequest = data.members[0].pullRequests[0];
+    const pullRequest = data.members[0].pullRequests[data.members[0].solvedCount - 1];
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -143,7 +143,7 @@ describe("DashboardShell", () => {
 
   it("posts and renders a comment directly beneath a selected code line", async () => {
     const data = getSampleDashboard(new Date("2026-08-12T03:00:00.000Z"));
-    const pullRequest = data.members[0].pullRequests[0];
+    const pullRequest = data.members[0].pullRequests[data.members[0].solvedCount - 1];
     const filename = "member/problem/solution.c";
     const fetchMock = vi
       .fn()
