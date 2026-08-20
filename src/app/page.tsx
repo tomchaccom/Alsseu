@@ -4,6 +4,7 @@ import type { DashboardWeekSelection } from "@/domain/types";
 import { getDashboardData } from "@/lib/dashboard-data";
 import { isDemoMode } from "@/lib/env";
 import { getSampleDashboard } from "@/lib/sample-data";
+import { createClient } from "@/lib/supabase/server";
 
 type DemoState = "default" | "warning" | "closed" | "complete";
 
@@ -30,6 +31,17 @@ export default async function Home({
   const params = await searchParams;
   const now = new Date();
   const weekSelection = parseWeekSelection(params.week);
+
+  let currentUserGithubLogin: string | null = null;
+  if (!isDemoMode()) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    currentUserGithubLogin =
+      user?.user_metadata?.user_name ??
+      user?.user_metadata?.preferred_username ??
+      null;
+  }
+
   const data = isDemoMode()
     ? getSampleDashboard(now, parseDemoState(params.state))
     : await getDashboardData(now, weekSelection);
@@ -39,6 +51,7 @@ export default async function Home({
       data={data}
       initialNow={data.syncedAt}
       weekSelection={weekSelection}
+      currentUserGithubLogin={currentUserGithubLogin}
     />
   );
 }
