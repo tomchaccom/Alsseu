@@ -14,6 +14,7 @@ select vault.create_secret(
   'reminder_cron_secret'
 );
 
+-- 일요일 12:00 UTC = 일요일 21:00 KST: 마감 3시간 전 알림
 select cron.schedule(
   'algo-study-discord-reminder-3h',
   '0 12 * * 0',
@@ -29,7 +30,28 @@ select cron.schedule(
         where name = 'reminder_cron_secret'
       )
     ),
-    body := '{}'::jsonb
+    body := '{"kind":"deadline_3h"}'::jsonb
+  );
+  $$
+);
+
+-- 일요일 15:00 UTC = 월요일 00:00 KST: 주차 마감 후 벌금 대상 공지
+select cron.schedule(
+  'algo-study-discord-penalty-announcement',
+  '0 15 * * 0',
+  $$
+  select net.http_post(
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url')
+      || '/functions/v1/discord-reminder',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'x-cron-secret', (
+        select decrypted_secret
+        from vault.decrypted_secrets
+        where name = 'reminder_cron_secret'
+      )
+    ),
+    body := '{"kind":"penalty_announcement"}'::jsonb
   );
   $$
 );

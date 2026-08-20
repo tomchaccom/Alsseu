@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DiscordNotificationForm } from "@/components/discord-notification-form";
 import { MemberStatusForm } from "@/components/member-status-form";
 import { getMemberManagementData } from "@/lib/member-management";
 import styles from "./admin.module.css";
@@ -62,6 +63,23 @@ export default async function AdminPage() {
             );
           })}
         </ul>
+
+        <section className={styles.notificationSection}>
+          <h2 className={styles.sectionTitle}>Discord 알림</h2>
+          <p className={styles.description}>
+            수동으로 Discord 채널에 알림을 보냅니다. 이미 이번 주차에 전송된 알림은 중복 전송되지 않습니다.
+          </p>
+          <DiscordNotificationForm
+            kind="deadline_3h"
+            label="마감 3시간 전 알림"
+            description="아직 5문제를 달성하지 못한 멤버에게 마감 경고를 보냅니다."
+          />
+          <DiscordNotificationForm
+            kind="penalty_announcement"
+            label="벌금 대상 공지"
+            description="직전 주차 기준 벌금 대상자 명단과 카카오 모임통장 링크를 공지합니다."
+          />
+        </section>
       </section>
     </main>
   );
