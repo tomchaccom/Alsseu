@@ -18,6 +18,13 @@
 - 해결: migration의 unique constraint와 `webhook_deliveries` insert를 확인한다.
 - 검증: 두 번째 요청이 `duplicate` 응답을 반환하고 PR 행 수가 그대로인지 확인한다.
 
+## Supabase Edge Function Secrets에 SUPABASE_ prefix 등록 불가
+
+- 증상: Secrets에 `SUPABASE_SERVICE_ROLE_KEY` 등록 시 "prefix is reserved" 오류 발생.
+- 원인: Supabase가 `SUPABASE_` prefix를 예약어로 제한한다.
+- 해결: `SUPABASE_SERVICE_ROLE_KEY`는 Edge Function 런타임이 자동 주입하므로 수동 등록 불필요. 다른 커스텀 시크릿은 `SUPABASE_` 없는 이름으로 등록한다.
+- 검증: `Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")`가 함수 내에서 값을 반환하는지 로그로 확인한다.
+
 ## 첫 `supabase start`에서 health check timeout
 
 - 증상: migration과 seed 적용 후 여러 컨테이너가 `LegacyHealthCheckTimeoutError`로 정지한다.
